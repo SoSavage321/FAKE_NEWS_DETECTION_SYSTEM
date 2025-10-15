@@ -25,7 +25,7 @@ def load_model():
     
     try:
         # Load the tuned Random Forest model
-        model = joblib.load('models/tuned_random_forest_model.pkl')
+        model = joblib.load('Dectection_System/models/original_random_forest_model.pkl')
         logger.info("✅ Tuned Random Forest model loaded successfully")
         
         # Extract vectorizer from the pipeline
