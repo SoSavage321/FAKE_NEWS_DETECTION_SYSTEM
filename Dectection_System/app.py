@@ -8,6 +8,7 @@ import string
 from sklearn.feature_extraction.text import TfidfVectorizer
 import logging
 from datetime import datetime
+import os
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
