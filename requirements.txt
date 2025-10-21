@@ -2,6 +2,7 @@
 wheel>=0.40.0
 build>=1.0.3
 
+gdown==5.2.0
 Flask==2.3.3
 gunicorn==21.2.0
 pandas==2.0.3

@@ -11,7 +11,7 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.pipeline import Pipeline
 import logging
 from datetime import datetime
-
+import gdown
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -23,16 +23,21 @@ model = None
 vectorizer = None
 
 def download_model_if_missing():
-    """Download the model file if it doesn't exist locally"""
-    model_url = "https://drive.google.com/uc?export=download&id=1j3sm9psl8T-cEG_JpLOpeuCJKqjWIHFc"
-    model_path = os.path.join('models', 'original_random_forest_model.pkl')
+    model_url = "https://drive.google.com/uc?id=1j3sm9psl8T-cEG_JpLOpeuCJKqjWIHFc"
+    model_path = os.path.abspath(os.path.join('models', 'original_random_forest_model.pkl'))
+    logger.info(f"Checking for model at: {model_path}")
     if not os.path.exists(model_path):
-        logger.info(f"📥 Downloading model from {model_url}...")
-        os.makedirs('models', exist_ok=True)
+        logger.info(f"📥 Downloading model from {model_url} to {model_path}")
+        os.makedirs(os.path.dirname(model_path), exist_ok=True)
         try:
-            urllib.request.urlretrieve(model_url, model_path)
+            gdown.download(model_url, model_path, quiet=False)
             if os.path.exists(model_path):
-                logger.info(f"✅ Model downloaded to {model_path}")
+                file_size = os.path.getsize(model_path)
+                logger.info(f"✅ Model downloaded to {model_path} (size: {file_size} bytes)")
+                # Verify file integrity
+                with open(model_path, 'rb') as f:
+                    first_bytes = f.read(4)
+                    logger.info(f"First bytes of file: {first_bytes}")
                 return True
             else:
                 logger.error(f"❌ Model file not found after download at {model_path}")
@@ -42,40 +47,6 @@ def download_model_if_missing():
             return False
     logger.info(f"✅ Model already exists at {model_path}")
     return True
-
-def create_fallback_model():
-    """Create a simple fallback model for testing"""
-    global model, vectorizer
-    logger.info("🔄 Creating fallback model...")
-    
-    try:
-        vectorizer = TfidfVectorizer(max_features=1000, ngram_range=(1, 2))
-        rf = RandomForestClassifier(n_estimators=10, random_state=42)
-        model = Pipeline([
-            ('tfidf', vectorizer),
-            ('rf', rf)
-        ])
-        
-        dummy_texts = [
-            "this is real news about politics and government",
-            "fake news spreading misinformation false claim",
-            "official statement from government authorities",
-            "false claim debunked by experts and fact checkers",
-            "breaking news real event confirmed by sources",
-            "viral hoax fake information circulating online",
-            "verified information from trusted news sources",
-            "conspiracy theory baseless claim without evidence",
-            "scientific study published in journal research",
-            "misleading headline clickbait fake content"
-        ]
-        dummy_labels = [1, 0, 1, 0, 1, 0, 1, 0, 1, 0]  # 1=real, 0=fake
-        
-        model.fit(dummy_texts, dummy_labels)
-        logger.info("✅ Fallback model created successfully")
-        return True
-    except Exception as e:
-        logger.error(f"❌ Failed to create fallback model: {e}")
-        return False
 
 def load_model():
     """Load the trained model and vectorizer"""
