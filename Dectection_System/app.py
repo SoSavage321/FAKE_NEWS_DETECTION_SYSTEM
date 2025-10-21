@@ -24,7 +24,7 @@ vectorizer = None
 
 def download_model_if_missing():
     """Download the model file if it doesn't exist locally"""
-    model_url = "https://drive.google.com/file/d/1j3sm9psl8T-cEG_JpLOpeuCJKqjWIHFc/view?usp=drive_link"
+    model_url = "https://drive.google.com/uc?export=download&id=1j3sm9psl8T-cEG_JpLOpeuCJKqjWIHFc"
     model_path = os.path.join('models', 'original_random_forest_model.pkl')
     if not os.path.exists(model_path):
         logger.info(f"📥 Downloading model from {model_url}...")
