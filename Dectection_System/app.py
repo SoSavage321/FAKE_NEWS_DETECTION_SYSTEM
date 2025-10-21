@@ -1,16 +1,16 @@
-# app.py
 from flask import Flask, request, jsonify, render_template
 import pandas as pd
 import numpy as np
 import joblib
 import re
 import string
+import os
+import urllib.request
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.pipeline import Pipeline
 import logging
 from datetime import datetime
-import os
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -22,13 +22,27 @@ app = Flask(__name__)
 model = None
 vectorizer = None
 
+def download_model_if_missing():
+    """Download the model file if it doesn't exist locally"""
+    model_url = 'https://your-host.com/models/original_random_forest_model.pkl'  # Replace with your model URL
+    model_path = os.path.join('models', 'original_random_forest_model.pkl')
+    if not os.path.exists(model_path):
+        logger.info("📥 Downloading model...")
+        os.makedirs('models', exist_ok=True)
+        try:
+            urllib.request.urlretrieve(model_url, model_path)
+            logger.info(f"✅ Model downloaded to {model_path}")
+        except Exception as e:
+            logger.error(f"❌ Failed to download model: {e}")
+            return False
+    return True
+
 def create_fallback_model():
     """Create a simple fallback model for testing"""
     global model, vectorizer
     logger.info("🔄 Creating fallback model...")
     
     try:
-        # Create a simple pipeline
         vectorizer = TfidfVectorizer(max_features=1000, ngram_range=(1, 2))
         rf = RandomForestClassifier(n_estimators=10, random_state=42)
         model = Pipeline([
@@ -36,7 +50,6 @@ def create_fallback_model():
             ('rf', rf)
         ])
         
-        # Train on dummy data
         dummy_texts = [
             "this is real news about politics and government",
             "fake news spreading misinformation false claim",
@@ -63,6 +76,10 @@ def load_model():
     global model, vectorizer
     
     try:
+        # Attempt to download model if not present
+        if not download_model_if_missing():
+            logger.warning("⚠️ Model download failed, proceeding with local check")
+
         # Get the absolute path to the models directory
         base_dir = os.path.dirname(os.path.abspath(__file__))
         possible_paths = [
@@ -77,23 +94,26 @@ def load_model():
         loaded_path = None
         
         for model_path in possible_paths:
-            try:
-                if os.path.exists(model_path):
+            logger.info(f"🔍 Checking path: {model_path}")
+            if os.path.exists(model_path):
+                try:
                     model = joblib.load(model_path)
                     logger.info(f"✅ Model loaded successfully from: {model_path}")
                     model_loaded = True
                     loaded_path = model_path
                     break
-                else:
-                    logger.info(f"📁 Path not found: {model_path}")
-            except Exception as e:
-                logger.warning(f"❌ Failed to load from {model_path}: {e}")
-                continue
+                except Exception as e:
+                    logger.warning(f"❌ Failed to load from {model_path}: {e}")
+                    continue
+            else:
+                logger.info(f"📁 Path not found: {model_path}")
         
         if not model_loaded:
             logger.error("❌ Could not load model from any path - using fallback")
-            if create_fallback_model():
-                app.config['model_type'] = 'fallback'
+            if not create_fallback_model():
+                logger.error("❌ Fallback model creation failed")
+                return
+            app.config['model_type'] = 'fallback'
             return
         
         # Extract vectorizer from the pipeline
@@ -107,13 +127,11 @@ def load_model():
             app.config['model_type'] = 'production'
         else:
             logger.warning("⚠️ Could not extract vectorizer from pipeline")
-            # Create a vectorizer for text processing
             vectorizer = TfidfVectorizer(max_features=5000, ngram_range=(1, 2))
             app.config['model_type'] = 'production_modified'
             
     except Exception as e:
         logger.error(f"❌ Error loading model: {e}")
-        # Create fallback model
         if create_fallback_model():
             app.config['model_type'] = 'fallback'
 
@@ -122,19 +140,10 @@ def clean_text(text):
     if pd.isna(text) or text is None:
         return ""
     
-    # Convert to string and lowercase
     text = str(text).lower()
-    
-    # Remove URLs
     text = re.sub(r'http\S+|www\S+|https\S+', '', text, flags=re.MULTILINE)
-    
-    # Remove social media elements
     text = re.sub(r'@\w+|#\w+', '', text)
-    
-    # Remove special characters and numbers but keep basic punctuation
     text = re.sub(r'[^\w\s\.\,\!\?]', '', text)
-    
-    # Remove extra whitespace
     text = re.sub(r'\s+', ' ', text).strip()
     
     return text
@@ -144,22 +153,17 @@ def analyze_text_features(text):
     features = {}
     
     try:
-        # Basic statistics
         features['text_length'] = len(text)
         features['word_count'] = len(text.split())
         features['avg_word_length'] = np.mean([len(word) for word in text.split()]) if text.split() else 0
-        
-        # Linguistic features
         features['has_exclamation'] = 1 if '!' in text else 0
         features['has_question'] = 1 if '?' in text else 0
         features['uppercase_ratio'] = sum(1 for c in text if c.isupper()) / max(1, len(text))
         features['sentence_count'] = text.count('.') + text.count('!') + text.count('?')
         features['unique_words'] = len(set(text.split()))
         features['unique_ratio'] = features['unique_words'] / max(1, features['word_count'])
-        
     except Exception as e:
         logger.error(f"Error analyzing text features: {e}")
-        # Set default values
         features = {
             'text_length': len(text),
             'word_count': 0,
@@ -202,65 +206,47 @@ def health_check():
 @app.route('/api/predict', methods=['POST'])
 def predict():
     """API endpoint for fake news prediction"""
-    # Check if model is loaded
     if model is None:
         logger.error("Model not loaded - attempting to reload")
         load_model()
         if model is None:
             return jsonify({
-                'error': 'Model not available', 
+                'error': 'Model not available',
                 'message': 'Service temporarily unavailable. Please try again shortly.',
                 'timestamp': datetime.now().isoformat()
             }), 503
     
     try:
-        # Get JSON data from request
         data = request.get_json()
-        
         if not data:
             return jsonify({'error': 'No JSON data provided'}), 400
         
-        # Extract text from request
         text = data.get('text', '')
         title = data.get('title', '')
         
         if not text and not title:
             return jsonify({'error': 'Either text or title must be provided'}), 400
         
-        # Combine title and text
         combined_text = f"{title} {text}".strip()
-        
         if len(combined_text) < 10:
             return jsonify({'error': 'Text is too short for analysis (minimum 10 characters)'}), 400
         
-        # Clean the text
         cleaned_text = clean_text(combined_text)
-        
         if len(cleaned_text) < 5:
             return jsonify({'error': 'Text too short after cleaning'}), 400
         
-        # Make prediction
         prediction = model.predict([cleaned_text])
         prediction_proba = model.predict_proba([cleaned_text])
         
-        # Analyze text features
         text_features = analyze_text_features(cleaned_text)
-        
-        # Determine prediction label
         prediction_label = 'fake' if prediction[0] == 0 else 'true'
         confidence_fake = float(prediction_proba[0][0])
         confidence_true = float(prediction_proba[0][1])
-        
-        # Get highest confidence
         highest_confidence = max(confidence_fake, confidence_true)
         
-        # Prepare response
         response = {
             'prediction': prediction_label,
-            'confidence': {
-                'fake': confidence_fake,
-                'true': confidence_true
-            },
+            'confidence': {'fake': confidence_fake, 'true': confidence_true},
             'confidence_score': highest_confidence,
             'text_analysis': text_features,
             'timestamp': datetime.now().isoformat(),
@@ -269,13 +255,12 @@ def predict():
         }
         
         logger.info(f"Prediction made: {response['prediction']} with confidence {highest_confidence:.3f}")
-        
         return jsonify(response)
     
     except Exception as e:
         logger.error(f"Prediction error: {e}")
         return jsonify({
-            'error': 'Internal server error', 
+            'error': 'Internal server error',
             'details': str(e),
             'timestamp': datetime.now().isoformat()
         }), 500
@@ -283,7 +268,6 @@ def predict():
 @app.route('/api/batch_predict', methods=['POST'])
 def batch_predict():
     """API endpoint for batch predictions"""
-    # Check if model is loaded
     if model is None:
         logger.error("Model not loaded for batch prediction")
         return jsonify({
@@ -293,15 +277,12 @@ def batch_predict():
     
     try:
         data = request.get_json()
-        
         if not data or 'articles' not in data:
             return jsonify({'error': 'No articles array provided'}), 400
         
         articles = data['articles']
-        
         if not isinstance(articles, list):
             return jsonify({'error': 'Articles must be an array'}), 400
-        
         if len(articles) > 100:
             return jsonify({'error': 'Too many articles (maximum 100 per request)'}), 400
         
@@ -337,16 +318,11 @@ def batch_predict():
                 results.append({
                     'id': article_id,
                     'prediction': prediction_label,
-                    'confidence': {
-                        'fake': confidence_fake,
-                        'true': confidence_true
-                    },
+                    'confidence': {'fake': confidence_fake, 'true': confidence_true},
                     'confidence_score': max(confidence_fake, confidence_true),
                     'text_preview': cleaned_text[:50] + '...' if len(cleaned_text) > 50 else cleaned_text
                 })
-                
                 successful_predictions += 1
-                
             except Exception as e:
                 logger.error(f"Error processing article {i}: {e}")
                 results.append({
@@ -369,7 +345,7 @@ def batch_predict():
     except Exception as e:
         logger.error(f"Batch prediction error: {e}")
         return jsonify({
-            'error': 'Internal server error', 
+            'error': 'Internal server error',
             'details': str(e),
             'timestamp': datetime.now().isoformat()
         }), 500
@@ -382,7 +358,6 @@ def model_info():
     
     try:
         model_type = app.config.get('model_type', 'unknown')
-        
         if model_type == 'fallback':
             model_info = {
                 'model_type': 'Fallback Random Forest',
@@ -402,8 +377,6 @@ def model_info():
                 'status': 'production_mode',
                 'loaded_at': app.config.get('model_loaded_at', 'Unknown')
             }
-            
-            # Try to get vectorizer info
             if hasattr(vectorizer, 'max_features'):
                 model_info['max_features'] = vectorizer.max_features
             if hasattr(vectorizer, 'ngram_range'):
@@ -425,7 +398,6 @@ def reload_model():
     try:
         logger.info("Reloading model...")
         load_model()
-        
         if model is not None:
             return jsonify({
                 'message': 'Model reloaded successfully',
@@ -437,7 +409,6 @@ def reload_model():
                 'error': 'Failed to reload model',
                 'timestamp': datetime.now().isoformat()
             }), 500
-            
     except Exception as e:
         logger.error(f"Error reloading model: {e}")
         return jsonify({
@@ -463,10 +434,8 @@ def service_unavailable(error):
     return jsonify({'error': 'Service temporarily unavailable'}), 503
 
 if __name__ == '__main__':
-    # Load model when starting the app
     print("🚀 Fake News Detection API Starting...")
     print("📦 Loading model...")
-    
     load_model()
     
     if model is not None:
@@ -477,7 +446,6 @@ if __name__ == '__main__':
         print("❌ Model loading failed completely")
         app.config['model_loaded_at'] = 'Failed'
     
-    # Print available endpoints
     print("📊 Available endpoints:")
     print("   GET  /                  - API Documentation")
     print("   GET  /api/health        - Health check")
@@ -487,5 +455,4 @@ if __name__ == '__main__':
     print("   POST /api/reload_model  - Reload model")
     print("\n🌐 Server running on http://0.0.0.0:5000")
     
-    # Run the Flask app
     app.run(host='0.0.0.0', port=5000, debug=False)
