@@ -24,17 +24,23 @@ vectorizer = None
 
 def download_model_if_missing():
     """Download the model file if it doesn't exist locally"""
-    model_url = 'https://your-host.com/models/original_random_forest_model.pkl'  # Replace with your model URL
+    model_url = "https://raw.githubusercontent.com/SoSavage321/FAKE_NEWS_DETECTION_SYSTEM/main/models/original_random_forest_model.pkl"
     model_path = os.path.join('models', 'original_random_forest_model.pkl')
     if not os.path.exists(model_path):
-        logger.info("📥 Downloading model...")
+        logger.info(f"📥 Downloading model from {model_url}...")
         os.makedirs('models', exist_ok=True)
         try:
             urllib.request.urlretrieve(model_url, model_path)
-            logger.info(f"✅ Model downloaded to {model_path}")
+            if os.path.exists(model_path):
+                logger.info(f"✅ Model downloaded to {model_path}")
+                return True
+            else:
+                logger.error(f"❌ Model file not found after download at {model_path}")
+                return False
         except Exception as e:
-            logger.error(f"❌ Failed to download model: {e}")
+            logger.error(f"❌ Failed to download model from {model_url}: {e}")
             return False
+    logger.info(f"✅ Model already exists at {model_path}")
     return True
 
 def create_fallback_model():
@@ -75,6 +81,7 @@ def load_model():
     """Load the trained model and vectorizer"""
     global model, vectorizer
     
+    logger.info(f"🔄 Loading model from base_dir: {os.path.dirname(os.path.abspath(__file__))}")    
     try:
         # Attempt to download model if not present
         if not download_model_if_missing():
@@ -111,7 +118,7 @@ def load_model():
         if not model_loaded:
             logger.error("❌ Could not load model from any path - using fallback")
             if not create_fallback_model():
-                logger.error("❌ Fallback model creation failed")
+                logger.error("❌ Fallback model creation failed - service will be unavailable")
                 return
             app.config['model_type'] = 'fallback'
             return
