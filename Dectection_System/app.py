@@ -63,15 +63,14 @@ def load_model():
     global model, vectorizer
     
     try:
-        # Try different possible paths
+        # Get the absolute path to the models directory
+        base_dir = os.path.dirname(os.path.abspath(__file__))
         possible_paths = [
-            'models/original_random_forest_model.pkl',
-            'model/original_random_forest_model.pkl',
-            'original_random_forest_model.pkl',
-            './models/original_random_forest_model.pkl',
-            './model/original_random_forest_model.pkl',
-            'Detection_System/models/original_random_forest_model.pkl',
-            'Dectection_System/models/original_random_forest_model.pkl'
+            os.path.join(base_dir, 'models', 'original_random_forest_model.pkl'),
+            os.path.join(base_dir, 'model', 'original_random_forest_model.pkl'),
+            os.path.join(base_dir, 'original_random_forest_model.pkl'),
+            os.path.join(base_dir, '..', 'Detection_System', 'models', 'original_random_forest_model.pkl'),
+            os.path.join(base_dir, '..', 'Dectection_System', 'models', 'original_random_forest_model.pkl')
         ]
         
         model_loaded = False
